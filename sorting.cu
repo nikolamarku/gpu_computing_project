@@ -30,10 +30,9 @@ __device__ void phase(int *x, int sequence_size, int comparator_size, bool two_w
 __global__ void bitonic_sort(int *x, int sequence_size){
     assert(blockDim.x == (sequence_size/4));
     int offset = blockIdx.x * sequence_size;
-    int *vect = x + offset;
     for (int i = 2; i < sequence_size; i *= 2)
-        phase(vect,sequence_size,i,true,true);
-    phase(vect,sequence_size,sequence_size,false,true);
+        phase(x + offset,sequence_size,i,true,true);
+    phase(x + offset,sequence_size,sequence_size,false,true);
 }
 
 __global__ void merge(int *x, int *out, int sequence_size){
@@ -69,4 +68,45 @@ __global__ void merge(int *x, int *out, int sequence_size){
     phase(tile,64,64,false,false);
     out[A_cursor + B_cursor - 64 + idx] = tile[idx];
     out[A_cursor + B_cursor - 64 + idx + 32 ] = tile[idx + 32];
+}
+
+
+__global__ void arb_merge(int *x, int *out, int offset, int seq_a_size, int seq_a_pos, int seq_b_size, int seq_b_pos){
+    assert(blockDim.x == 32);
+    int idx = threadIdx.x;
+    int *vect = x + offset;
+    out = out + offset;
+    int *A = vect + seq_a_pos, *B = vect + seq_b_pos;
+    __shared__ int tile[64];
+    tile[32 - 1 - idx] =  (idx < seq_a_size) ? A[idx] : INT_MAX;
+	tile[32 + idx]     =  (idx < seq_b_size) ? B[idx] : INT_MAX;
+    int max_A = tile[0], max_B = tile[63];
+    int A_cursor = min(seq_a_size,32);
+    int B_cursor = min(seq_b_size, 32);
+    int copied = 0;
+
+    while(A_cursor < seq_a_size || B_cursor < seq_b_size ){
+        phase(tile,64,64,false,false);
+        out[ copied + idx ] = tile[idx];
+        copied+=32;
+        if((max_A <= max_B && A_cursor < seq_a_size) || B_cursor == seq_b_size){
+            assert(A_cursor < seq_a_size);
+            tile[32 - 1 - idx] =  ((idx+A_cursor) < seq_a_size) ? A[idx + A_cursor] : INT_MAX;
+            max_A = tile[0];
+            A_cursor = min(A_cursor + 32, seq_a_size);
+        }else{
+            assert(B_cursor < seq_b_size);
+            tile[32 - 1 - idx] = ((idx+B_cursor) < seq_b_size) ? B[idx + B_cursor] : INT_MAX;
+            max_B = tile[0];
+            B_cursor = min(B_cursor + 32, seq_b_size);
+        }
+    }
+
+    phase(tile,64,64,false,false);
+
+    //check if it fits output
+    if(tile[idx] < INT_MAX)
+        out[copied + idx] = tile[idx];
+    if(tile[idx+32] < INT_MAX)
+        out[copied + idx + 32] = tile[idx + 32];
 }
