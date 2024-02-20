@@ -100,6 +100,7 @@ int main(){
     }
     printf("\n");
 
+    // INIZIALIZZAZIONE BLOCCHI
     block_info **block_len = (block_info**) malloc(sizeof(block_info*) * L);
     for(int i = 0; i < L; i++)
         block_len[i] = (block_info*) calloc(S, sizeof(block_info));
@@ -114,55 +115,81 @@ int main(){
             block_len[i][j].len = k - start;
         }
     }
-
+    
     for(int i=0; i<L; i++){
         int sum = 0;
         for(int j=0; j<S; j++)
             sum += block_len[i][j].len;
         assert(sum == (n/L));
     }
-    
-    printf("\nLAST:\n");
-    cudaMemset( d_out, 0,sizeof(int)*n);
-    /*for(int i=0; i<2; i++){
-        for(int k=block_len[i][curr_s].start; k < block_len[i][curr_s].end; k++)
-            printf("%d ",out[k]);
-        printf("\n");
-    }*/
-    int offset = 0;
-    int start = 0;
+
+    int blocks_len[S] = {0};
     for(int s=0; s<S; s++){
-        offset = 0;
-        for(int i=0; i<L-1; i+=2){
-            arb_merge<<<1,32>>>(d_in,d_out,start + offset,block_len[i][s].len,block_len[i][s].start,block_len[i+1][s].len,block_len[i+1][s].start);
-            cudaDeviceSynchronize();
-            offset += block_len[i][s].len + block_len[i+1][s].len;
-            printf("offset: %d\n",offset);
+        int sum = 0;
+        for(int l=0; l<L; l++){
+            sum += block_len[l][s].len;
         }
-        
-        for(int k=0;k<L; k++){
-            start += block_len[k][s].len;
-        }
-        printf("start: %d\n",start);
+        blocks_len[s] = sum;
     }
+
+    // FINE INIZIALIZZAZIONE BLOCCHI
+
+    cudaMemset( d_out, 0,sizeof(int)*n);
+
+    int *organized_input = (int *) calloc(n, sizeof(int));
+    int z = 0;
+    for(int j=0; j<S; j++){
+        int start = 0;
+        for(int i=0; i<L; i++){
+            int a = z;
+            for(int k=block_len[i][j].start; k < block_len[i][j].end; k++)
+                organized_input[z++] = out[k];
+            block_len[i][j].start = start;
+            block_len[i][j].end = start + z - a;
+            start = start + z - a;
+        }
+    }
+    //return 0;
+
+    int **d_ins;
+    int **d_outs;
+    d_ins = (int**) malloc(sizeof(int*) * S);
+    d_outs = (int**) malloc(sizeof(int*) * S);
+    int offset = 0;
+    for(int i =0; i<S; i++){
+        cudaMalloc(&d_ins[i],sizeof(int)*blocks_len[i]);
+        cudaMemcpy(d_ins[i],organized_input + offset,sizeof(int) * blocks_len[i],cudaMemcpyHostToDevice);
+        cudaMalloc(&d_outs[i],sizeof(int)*blocks_len[i]);
+        offset += blocks_len[i];
+    }
+
+//    organized_input = organized_input + blocks_len[0];
+//    cudaMemcpy(d_in, organized_input, size, cudaMemcpyHostToDevice);
+    for(int s = 0; s < S; s++){
+        for(int k=1; k <= (L/2); k*=2){
+            for(int i = 0; i< L-k; i+=(k*2)){
+                arb_merge<<<1,32>>>(d_ins[s],d_outs[s],block_len[i][s].start,block_len[i][s].len, block_len[i][s].start, block_len[i+k][s].len,block_len[i+k][s].start);
+                cudaDeviceSynchronize();
+                cudaMemcpy(out, d_outs[1], blocks_len[1]*sizeof(int), cudaMemcpyDeviceToHost);
+                block_len[i][s].end = block_len[i+k][s].end;
+                block_len[i][s].len = block_len[i][s].len + block_len[i+k][s].len;
+                memset(&block_len[i+k][s],0,sizeof(block_info));
+            }
+            cudaMemcpy(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice);
+            cudaMemcpy(organized_input,d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToHost);
+        }
+    }
+
     cudaDeviceSynchronize(); 
-    cudaMemcpy(out, d_out, size, cudaMemcpyDeviceToHost);
+    
+  //  cudaMemcpy(out, d_outs[1], blocks_len[1]*sizeof(int), cudaMemcpyDeviceToHost);
+    offset = 0;
+    for(int i =0; i<S; i++){
+        cudaMemcpy(out + offset,d_outs[i],sizeof(int) * blocks_len[i],cudaMemcpyDeviceToHost);
+        offset += blocks_len[i];
+    }
     for(int i=0; i<n;i++)
         printf("%d ",out[i]);
 
-
-    /*for(int i = 0; i < L; i++){
-        for(int j=0; j < (n/L); j++){
-            printf("%d ", out[i*(n/L) + j]);
-        }        
-        printf("\n\n");
-    }*/
-/*
-    for(int i = 0; i < n; i++)
-        printf("%2d ",out[i]);
-
-    printf("\n");
-*/
-    //test_arb_merge();
     return 0;
 }

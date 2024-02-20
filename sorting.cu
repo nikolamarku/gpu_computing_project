@@ -74,9 +74,8 @@ __global__ void merge(int *x, int *out, int sequence_size){
 __global__ void arb_merge(int *x, int *out, int offset, int seq_a_size, int seq_a_pos, int seq_b_size, int seq_b_pos){
     assert(blockDim.x == 32);
     int idx = threadIdx.x;
-    int *vect = x + offset;
     out = out + offset;
-    int *A = vect + seq_a_pos, *B = vect + seq_b_pos;
+    int *A = x + seq_a_pos, *B = x + seq_b_pos;
     __shared__ int tile[64];
     tile[32 - 1 - idx] =  (idx < seq_a_size) ? A[idx] : INT_MAX;
 	tile[32 + idx]     =  (idx < seq_b_size) ? B[idx] : INT_MAX;
