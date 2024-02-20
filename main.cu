@@ -101,33 +101,35 @@ int main(){
     printf("\n");
 
     // INIZIALIZZAZIONE BLOCCHI
-    block_info **block_len = (block_info**) malloc(sizeof(block_info*) * L);
-    for(int i = 0; i < L; i++)
-        block_len[i] = (block_info*) calloc(S, sizeof(block_info));
+    block_info **block_len = (block_info**) malloc(sizeof(block_info*) * S);
+    for(int i = 0; i < S; i++)
+        block_len[i] = (block_info*) calloc(L, sizeof(block_info));
 
     for(int i = 0; i<L; i++){
         int k = 0;
         for(int j = 0; j<S; j++){
             int start = k;
             while( k < (n/L) && out[(i*(n/L)) + k] <= splitters[j]) k++;
-            block_len[i][j].start = (i*(n/L)) + start;
-            block_len[i][j].end = (i*(n/L)) + k;
-            block_len[i][j].len = k - start;
+            block_len[j][i].start = (i*(n/L)) + start;
+            block_len[j][i].end = (i*(n/L)) + k;
+            block_len[j][i].len = k - start;
         }
     }
     
     for(int i=0; i<L; i++){
         int sum = 0;
         for(int j=0; j<S; j++)
-            sum += block_len[i][j].len;
+            sum += block_len[j][i].len;
         assert(sum == (n/L));
     }
+
+    
 
     int blocks_len[S] = {0};
     for(int s=0; s<S; s++){
         int sum = 0;
         for(int l=0; l<L; l++){
-            sum += block_len[l][s].len;
+            sum += block_len[s][l].len;
         }
         blocks_len[s] = sum;
     }
@@ -142,10 +144,10 @@ int main(){
         int start = 0;
         for(int i=0; i<L; i++){
             int a = z;
-            for(int k=block_len[i][j].start; k < block_len[i][j].end; k++)
+            for(int k=block_len[j][i].start; k < block_len[j][i].end; k++)
                 organized_input[z++] = out[k];
-            block_len[i][j].start = start;
-            block_len[i][j].end = start + z - a;
+            block_len[j][i].start = start;
+            block_len[j][i].end = start + z - a;
             start = start + z - a;
         }
     }
@@ -168,12 +170,12 @@ int main(){
     for(int s = 0; s < S; s++){
         for(int k=1; k <= (L/2); k*=2){
             for(int i = 0; i< L-k; i+=(k*2)){
-                arb_merge<<<1,32>>>(d_ins[s],d_outs[s],block_len[i][s].start,block_len[i][s].len, block_len[i][s].start, block_len[i+k][s].len,block_len[i+k][s].start);
+                arb_merge<<<1,32>>>(d_ins[s],d_outs[s],block_len[s][i].start,block_len[s][i].len, block_len[s][i].start, block_len[s][i+k].len,block_len[s][i+k].start);
                 cudaDeviceSynchronize();
-                cudaMemcpy(out, d_outs[1], blocks_len[1]*sizeof(int), cudaMemcpyDeviceToHost);
-                block_len[i][s].end = block_len[i+k][s].end;
-                block_len[i][s].len = block_len[i][s].len + block_len[i+k][s].len;
-                memset(&block_len[i+k][s],0,sizeof(block_info));
+                //cudaMemcpy(out, d_outs[1], blocks_len[1]*sizeof(int), cudaMemcpyDeviceToHost);
+                block_len[s][i].end = block_len[s][i+k].end;
+                block_len[s][i].len = block_len[s][i].len + block_len[s][i+k].len;
+                memset(&block_len[s][i+k],0,sizeof(block_info));
             }
             cudaMemcpy(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice);
             cudaMemcpy(organized_input,d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToHost);
