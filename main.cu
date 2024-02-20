@@ -17,37 +17,14 @@
  }                                                                 \
 }
 
+bool is_power_of_2(int x){
+    return (x != 0) && ((x & (x - 1)) == 0);
+}
+
 int cmp(const void * a, const void * b){
     return *((int*)a) - *((int*)b);
 }
 
-
-void test_arb_merge(){
-    for(int y = 0; y < 100; y++){
-        int arr_size = (rand() % 2046);
-        int *d_in, *d_out;
-        int *myvect= (int*) malloc(sizeof(int)*arr_size);
-        int a_size = (rand() % arr_size) + 1;
-        printf("arr_size: %d, a_size: %d\n",arr_size, a_size);
-
-        for(int i=0;i<a_size;i++) myvect[i] = i;
-        for(int i=a_size;i<arr_size;i++) myvect[i] = i - a_size;
-        int *tocmp = (int*) malloc(sizeof(int)*arr_size);
-        memcpy(tocmp,myvect,sizeof(int)*arr_size);
-        
-        cudaMalloc(&d_out, sizeof(int) * arr_size);
-        cudaMalloc(&d_in, sizeof(int) * arr_size);
-        cudaMemcpy(d_in,myvect,sizeof(int)*arr_size,cudaMemcpyHostToDevice);
-        arb_merge<<<1,32>>>(d_in,d_out,0,a_size,0,arr_size - a_size,a_size);
-        cudaDeviceSynchronize();
-        int *o = (int*) malloc(sizeof(int)*arr_size);
-        cudaMemcpy(o,d_out,sizeof(int)*arr_size,cudaMemcpyDeviceToHost);
-        
-        qsort(tocmp,arr_size, sizeof(int),cmp); 
-        if(memcmp(tocmp,o,sizeof(int)*arr_size) != 0)
-            printf("diversi\n");
-    }
-}
 
 int *get_splitters(int *in, int n){
     int *tmp = (int*) malloc(sizeof(int)*S*K);
@@ -62,28 +39,25 @@ int *get_splitters(int *in, int n){
     return splitters;
 }
 
-int main(){
-    srand(time(NULL));
+
+
+void warpSort(int *in, int n){
+    assert(n % 64 == 0 && is_power_of_2(n));
     int sequence_size = 64;
-    int n = sequence_size * 128;
     int size = sizeof(int) * n;
-    int *in = (int*) malloc(size);
     int *out = (int*) malloc(size);
-    for(int i=0; i<n; i++) in[i] = rand() % 1000;
+
     int *splitters = get_splitters(in,n);
     int *d_in, *d_out;
 
+    //step 1: bitonic sort
     cudaMalloc(&d_in, size) ;
     cudaMemcpy(d_in, in, size, cudaMemcpyHostToDevice);
     bitonic_sort<<<n/sequence_size,sequence_size/4>>>(d_in,sequence_size);
     cudaDeviceSynchronize();
     cudaMemcpy(out, d_in, size, cudaMemcpyDeviceToHost);
 
-    for(int i=0; i<(n/sequence_size); i++){
-        for(int j=0; j < sequence_size - 1; j++)
-            assert(out[(i*sequence_size) + j] <= out[(i*sequence_size) +j +1]);
-    }
-
+    //step 2: merge
     cudaMalloc(&d_out, size) ;
     for(int seq = sequence_size; (n/seq) > L; seq *=2){
         merge<<<n/(seq*2),32>>>(d_in,d_out,seq);
@@ -94,15 +68,8 @@ int main(){
     cudaMemcpy(out, d_out, size, cudaMemcpyDeviceToHost);
 
 
-    int *splitters_indexes = (int*) malloc(sizeof(int) * S);
 
-    printf("splitters: ");
-    for(int i=0; i  < S; i++){
-        printf("%d ",splitters[i]);
-    }
-    printf("\n");
-
-    // INIZIALIZZAZIONE BLOCCHI
+    //step 3: split into small tiles
     block_info **block_len = (block_info**) malloc(sizeof(block_info*) * S);
     for(int i = 0; i < S; i++)
         block_len[i] = (block_info*) calloc(L, sizeof(block_info));
@@ -117,15 +84,6 @@ int main(){
             block_len[j][i].len = k - start;
         }
     }
-    
-    for(int i=0; i<L; i++){
-        int sum = 0;
-        for(int j=0; j<S; j++)
-            sum += block_len[j][i].len;
-        assert(sum == (n/L));
-    }
-
-    
 
     int blocks_len[S] = {0};
     for(int s=0; s<S; s++){
@@ -135,10 +93,6 @@ int main(){
         }
         blocks_len[s] = sum;
     }
-
-    // FINE INIZIALIZZAZIONE BLOCCHI
-
-    cudaMemset( d_out, 0,sizeof(int)*n);
 
     int *organized_input = (int *) calloc(n, sizeof(int));
     int z = 0;
@@ -153,7 +107,6 @@ int main(){
             start = start + z - a;
         }
     }
-    //return 0;
 
     int **d_ins;
     int **d_outs;
@@ -167,75 +120,63 @@ int main(){
         offset += blocks_len[i];
     }
 
-//    organized_input = organized_input + blocks_len[0];
-//    cudaMemcpy(d_in, organized_input, size, cudaMemcpyHostToDevice);
-    /*
-        for(int k=1; k <= (L/2); k*=2){
-           for(int i = 0; i< L-k; i+=(k*2)){
-                merge<<<(num, 32>>>(in,out,block_len){
-                    int idx = threadIdx.x;
-                    int i = blockIdx.x;
-                    int k = (L/2) / blockDim.x;
-
-                    int a_start = block_len[i].start;
-                    int a_len =   block_len[i].len;
-                    int b_start =
-                    int b_len = 
-                    int offset = 
-                    ...
-
-                    block_len[i].end = block_len[i+k].end;
-                    block_len[i].len = block_len[i].len + block_len[s][i+k].len; 
-                }
-
-                child_merge<<<k,32>>>()
-                
-                final_merge(int **input, int** output, )
-                cudaDeviceSynchronize();
-                block_len[s][i].end = block_len[s][i+k].end;
-                block_len[s][i].len = block_len[s][i].len + block_len[s][i+k].len;
-                memset(&block_len[s][i+k],0,sizeof(block_info));
-            } 
-        }
-    */
     block_info **d_block_len = (block_info**) malloc(sizeof(block_info*) * S);
-    for(int i = 0; i < S; i++)
+    cudaStream_t stream[S];
+    for(int i = 0; i < S; i++){
+        cudaStreamCreate(&stream[i]);
+        cudaMalloc(&d_block_len[i],sizeof(block_info) * L);
         cudaMemcpy(d_block_len[i],block_len[i],sizeof(block_info) * L,cudaMemcpyHostToDevice);
-
-    for(int s = 0; s < S; s++){
-            for(int k = L; k > 0; k /= 2){
-                    printf("here");
-                    final_merge<<<k,32>>>(d_ins[s],d_outs[s],d_block_len[s],L);
-                    cudaCheckError()
-                    cudaDeviceSynchronize(); 
-                    return;
-                    cudaMemcpy(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice);
-            }
     }
-    /*for(int s = 0; s < S; s++){
-        for(int k=1; k <= (L/2); k*=2){
-            for(int i = 0; i< L-k; i+=(k*2)){
-                arb_merge<<<1,32>>>(d_ins[s],d_outs[s],block_len[s][i].start,block_len[s][i].len, block_len[s][i].start, block_len[s][i+k].len,block_len[s][i+k].start);
-                cudaDeviceSynchronize();
-                block_len[s][i].end = block_len[s][i+k].end;
-                block_len[s][i].len = block_len[s][i].len + block_len[s][i+k].len;
-                memset(&block_len[s][i+k],0,sizeof(block_info));
-            }
-            cudaMemcpy(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice);
-            cudaMemcpy(organized_input,d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToHost);
-        }
-    }*/
 
-    cudaDeviceSynchronize(); 
-    
-  //  cudaMemcpy(out, d_outs[1], blocks_len[1]*sizeof(int), cudaMemcpyDeviceToHost);
+
+    //step 4: merge independent S sequences
     offset = 0;
-    for(int i =0; i<S; i++){
-        cudaMemcpy(out + offset,d_outs[i],sizeof(int) * blocks_len[i],cudaMemcpyDeviceToHost);
-        offset += blocks_len[i];
+    for(int s = 0; s < S; s++){
+        for(int k = L/2; k > 0; k /= 2){
+            final_merge<<<k,32,0,stream[s]>>>(d_ins[s],d_outs[s],d_block_len[s],L);
+            cudaMemcpyAsync(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice,stream[s]);
+        }
+        cudaMemcpyAsync(out + offset,d_outs[s],sizeof(int) * blocks_len[s],cudaMemcpyDeviceToHost,stream[s]);
+        offset += blocks_len[s];
     }
+    cudaDeviceSynchronize();  
+    memcpy(in,out,sizeof(int)*n);
+}
+
+int main(){
+    srand(time(NULL));
+    int sequence_size = 128;
+    int n = sequence_size * (1 << 16);
+    int size = sizeof(int) * n;
+    int *in = (int*) malloc(size);
+    for(int i=0; i<n; i++) in[i] = rand() % 10000;
+    int *in2 = (int*) malloc(size);
+    printf("testing on %d elements\n",n);
+    memcpy(in2,in,sizeof(int)*n); 
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
+    warpSort(in,n);
+    cudaCheckError();
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("warpsort time ms: %f\n",milliseconds);
+
+    
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start); 
+    qsort(in2,n,sizeof(int),cmp);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("sequential quicksort time ms: %f\n",milliseconds);
+
     for(int i=0; i<n;i++)
-        printf("%d ",out[i]);
+        assert(in[i] == in2[i]);
 
     return 0;
 }

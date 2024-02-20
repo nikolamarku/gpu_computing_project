@@ -47,7 +47,7 @@ __global__ void merge(int *x, int *out, int sequence_size){
     int *A = vect, *B = vect + sequence_size;
     __shared__ int tile[64];
     tile[32 - 1 - idx] =  A[idx];
-	  tile[32 + idx]     =  B[idx];
+	tile[32 + idx]     =  B[idx];
     int max_A = tile[0], max_B = tile[63];
     int A_cursor = 32, B_cursor = 32;
 
@@ -73,67 +73,24 @@ __global__ void merge(int *x, int *out, int sequence_size){
 }
 
 
-__global__ void arb_merge(int *x, int *out, int offset, int seq_a_size, int seq_a_pos, int seq_b_size, int seq_b_pos){
-    assert(blockDim.x == 32);
-    int idx = threadIdx.x;
-    out = out + offset;
-    int *A = x + seq_a_pos, *B = x + seq_b_pos;
-    __shared__ int tile[64];
-    tile[32 - 1 - idx] =  (idx < seq_a_size) ? A[idx] : INT_MAX;
-	tile[32 + idx]     =  (idx < seq_b_size) ? B[idx] : INT_MAX;
-    int max_A = tile[0], max_B = tile[63];
-    int A_cursor = min(seq_a_size,32);
-    int B_cursor = min(seq_b_size, 32);
-    int copied = 0;
-
-    while(A_cursor < seq_a_size || B_cursor < seq_b_size ){
-        phase(tile,64,64,false,false);
-        out[ copied + idx ] = tile[idx];
-        copied+=32;
-        if((max_A <= max_B && A_cursor < seq_a_size) || B_cursor == seq_b_size){
-            assert(A_cursor < seq_a_size);
-            tile[32 - 1 - idx] =  ((idx+A_cursor) < seq_a_size) ? A[idx + A_cursor] : INT_MAX;
-            max_A = tile[0];
-            A_cursor = min(A_cursor + 32, seq_a_size);
-        }else{
-            assert(B_cursor < seq_b_size);
-            tile[32 - 1 - idx] = ((idx+B_cursor) < seq_b_size) ? B[idx + B_cursor] : INT_MAX;
-            max_B = tile[0];
-            B_cursor = min(B_cursor + 32, seq_b_size);
-        }
-    }
-
-    phase(tile,64,64,false,false);
-
-    //check if it fits output
-    if(tile[idx] < INT_MAX)
-        out[copied + idx] = tile[idx];
-    if(tile[idx+32] < INT_MAX)
-        out[copied + idx + 32] = tile[idx + 32];
-}
-
-
-
 
 __global__ void final_merge(int *x, int *out, block_info* b_info, const int L){
     assert(blockDim.x == 32);
-    int i = blockIdx.x;
-    int k = L / blockDim.x;
+    int i = blockIdx.x * (L/gridDim.x);
+    int k = (L/2) / gridDim.x;
     int idx = threadIdx.x;
-    if(idx == 0){
-        printf("k:");
-        return;
-    }
+
     int offset = b_info[i].start,
         seq_a_size = b_info[i].len,
         seq_a_pos = b_info[i].start,
         seq_b_size = b_info[i+k].len, 
         seq_b_pos = b_info[i+k].start;
     out = out + offset;
+
     int *A = x + seq_a_pos, *B = x + seq_b_pos;
     __shared__ int tile[64];
-    tile[32 - 1 - idx] =  (idx < seq_a_size) ? A[idx] : INT_MAX;
-	tile[32 + idx]     =  (idx < seq_b_size) ? B[idx] : INT_MAX;
+    tile[32 - 1 - idx] =  (idx < seq_a_size) * A[idx] + (1-(idx < seq_a_size)) * INT_MAX;
+	tile[32 + idx]     =  (idx < seq_b_size) * B[idx] + (1-(idx < seq_b_size)) *  INT_MAX;
     int max_A = tile[0], max_B = tile[63];
     int A_cursor = min(seq_a_size,32);
     int B_cursor = min(seq_b_size, 32);
