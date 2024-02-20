@@ -9,16 +9,18 @@
 #define K 64
 #define L 64
 #define CEIL(x,n) (x/n)*n + (n * (x % n > 0))
+#define cudaCheckError() {                                          \
+ cudaError_t e=cudaGetLastError();                                 \
+ if(e!=cudaSuccess) {                                              \
+   printf("Cuda failure %s:%d: '%s'\n",__FILE__,__LINE__,cudaGetErrorString(e));           \
+   exit(0); \
+ }                                                                 \
+}
 
 int cmp(const void * a, const void * b){
     return *((int*)a) - *((int*)b);
 }
 
-typedef struct{
-    int len;
-    int start;
-    int end;
-}block_info;
 
 void test_arb_merge(){
     for(int y = 0; y < 100; y++){
@@ -167,12 +169,54 @@ int main(){
 
 //    organized_input = organized_input + blocks_len[0];
 //    cudaMemcpy(d_in, organized_input, size, cudaMemcpyHostToDevice);
+    /*
+        for(int k=1; k <= (L/2); k*=2){
+           for(int i = 0; i< L-k; i+=(k*2)){
+                merge<<<(num, 32>>>(in,out,block_len){
+                    int idx = threadIdx.x;
+                    int i = blockIdx.x;
+                    int k = (L/2) / blockDim.x;
+
+                    int a_start = block_len[i].start;
+                    int a_len =   block_len[i].len;
+                    int b_start =
+                    int b_len = 
+                    int offset = 
+                    ...
+
+                    block_len[i].end = block_len[i+k].end;
+                    block_len[i].len = block_len[i].len + block_len[s][i+k].len; 
+                }
+
+                child_merge<<<k,32>>>()
+                
+                final_merge(int **input, int** output, )
+                cudaDeviceSynchronize();
+                block_len[s][i].end = block_len[s][i+k].end;
+                block_len[s][i].len = block_len[s][i].len + block_len[s][i+k].len;
+                memset(&block_len[s][i+k],0,sizeof(block_info));
+            } 
+        }
+    */
+    block_info **d_block_len = (block_info**) malloc(sizeof(block_info*) * S);
+    for(int i = 0; i < S; i++)
+        cudaMemcpy(d_block_len[i],block_len[i],sizeof(block_info) * L,cudaMemcpyHostToDevice);
+
     for(int s = 0; s < S; s++){
+            for(int k = L; k > 0; k /= 2){
+                    printf("here");
+                    final_merge<<<k,32>>>(d_ins[s],d_outs[s],d_block_len[s],L);
+                    cudaCheckError()
+                    cudaDeviceSynchronize(); 
+                    return;
+                    cudaMemcpy(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice);
+            }
+    }
+    /*for(int s = 0; s < S; s++){
         for(int k=1; k <= (L/2); k*=2){
             for(int i = 0; i< L-k; i+=(k*2)){
                 arb_merge<<<1,32>>>(d_ins[s],d_outs[s],block_len[s][i].start,block_len[s][i].len, block_len[s][i].start, block_len[s][i+k].len,block_len[s][i+k].start);
                 cudaDeviceSynchronize();
-                //cudaMemcpy(out, d_outs[1], blocks_len[1]*sizeof(int), cudaMemcpyDeviceToHost);
                 block_len[s][i].end = block_len[s][i+k].end;
                 block_len[s][i].len = block_len[s][i].len + block_len[s][i+k].len;
                 memset(&block_len[s][i+k],0,sizeof(block_info));
@@ -180,7 +224,7 @@ int main(){
             cudaMemcpy(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice);
             cudaMemcpy(organized_input,d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToHost);
         }
-    }
+    }*/
 
     cudaDeviceSynchronize(); 
     

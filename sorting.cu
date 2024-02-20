@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <assert.h>
+#include "sorting.cuh"
+
 
 __device__ void phase(int *x, int sequence_size, int comparator_size, bool two_ways, bool full){
     int MAX_COMPARATOR_N = (sequence_size/2)/2;
@@ -108,4 +110,61 @@ __global__ void arb_merge(int *x, int *out, int offset, int seq_a_size, int seq_
         out[copied + idx] = tile[idx];
     if(tile[idx+32] < INT_MAX)
         out[copied + idx + 32] = tile[idx + 32];
+}
+
+
+
+
+__global__ void final_merge(int *x, int *out, block_info* b_info, const int L){
+    assert(blockDim.x == 32);
+    int i = blockIdx.x;
+    int k = L / blockDim.x;
+    int idx = threadIdx.x;
+    if(idx == 0){
+        printf("k:");
+        return;
+    }
+    int offset = b_info[i].start,
+        seq_a_size = b_info[i].len,
+        seq_a_pos = b_info[i].start,
+        seq_b_size = b_info[i+k].len, 
+        seq_b_pos = b_info[i+k].start;
+    out = out + offset;
+    int *A = x + seq_a_pos, *B = x + seq_b_pos;
+    __shared__ int tile[64];
+    tile[32 - 1 - idx] =  (idx < seq_a_size) ? A[idx] : INT_MAX;
+	tile[32 + idx]     =  (idx < seq_b_size) ? B[idx] : INT_MAX;
+    int max_A = tile[0], max_B = tile[63];
+    int A_cursor = min(seq_a_size,32);
+    int B_cursor = min(seq_b_size, 32);
+    int copied = 0;
+
+    while(A_cursor < seq_a_size || B_cursor < seq_b_size ){
+        phase(tile,64,64,false,false);
+        out[ copied + idx ] = tile[idx];
+        copied+=32;
+        if((max_A <= max_B && A_cursor < seq_a_size) || B_cursor == seq_b_size){
+            assert(A_cursor < seq_a_size);
+            tile[32 - 1 - idx] =  ((idx+A_cursor) < seq_a_size) ? A[idx + A_cursor] : INT_MAX;
+            max_A = tile[0];
+            A_cursor = min(A_cursor + 32, seq_a_size);
+        }else{
+            assert(B_cursor < seq_b_size);
+            tile[32 - 1 - idx] = ((idx+B_cursor) < seq_b_size) ? B[idx + B_cursor] : INT_MAX;
+            max_B = tile[0];
+            B_cursor = min(B_cursor + 32, seq_b_size);
+        }
+    }
+
+    phase(tile,64,64,false,false);
+
+    //check if it fits output
+    if(tile[idx] < INT_MAX)
+        out[copied + idx] = tile[idx];
+    if(tile[idx+32] < INT_MAX)
+        out[copied + idx + 32] = tile[idx + 32];
+
+
+    b_info[i].end = b_info[i+k].end;
+    b_info[i].len = b_info[i].len + b_info[i+k].len;
 }
