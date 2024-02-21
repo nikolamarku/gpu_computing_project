@@ -5,11 +5,19 @@
 
 
 __device__ void phase(int *x, int sequence_size, int comparator_size, bool two_ways, bool full){
+    assert(blockDim.x == 32);
     int MAX_COMPARATOR_N = (sequence_size/2)/2;
     int idx = threadIdx.x;
     int num_of_comparators = (sequence_size / comparator_size) /2;
     //fix this
     int selected_comparator = idx / (MAX_COMPARATOR_N/num_of_comparators);
+    __shared__ int tile[128];
+    tile[idx] = x[idx];
+	tile[idx + 32] = x[idx + 32];
+    if(full){
+	    tile[idx + 64] = x[idx + 64];
+	    tile[idx + 96] = x[idx + 96];
+    }
 
     for (int j = comparator_size / 2; j > 0; j /= 2) {
         int groups_in_comp_stage = comparator_size / (j*2);
@@ -18,14 +26,21 @@ __device__ void phase(int *x, int sequence_size, int comparator_size, bool two_w
         int offset_in_group = (idx/groups_in_comp_stage) % j;
         int k0 = (selected_comparator * (comparator_size*2)) + group_start + offset_in_group;
         int k1 = sequence_size - 1 - k0;
-        int a = x[k0], b = x[k0+j];
-        x[k0] =   min(a,b);
-        x[k0+j] = max(a,b);
+        int a = tile[k0], b = tile[k0+j];
+        tile[k0] =   min(a,b);
+        tile[k0+j] = max(a,b);
         if(full){
-          int c= x[k1-j], d = x[k1];
-          x[k1-j] = (1-two_ways)*min(c,d) + two_ways*max(c,d);
-          x[k1] =   (1-two_ways)*max(c,d) + two_ways*min(c,d);
+          int c= tile[k1-j], d = tile[k1];
+          tile[k1-j] = (1-two_ways)*min(c,d) + two_ways*max(c,d);
+          tile[k1] =   (1-two_ways)*max(c,d) + two_ways*min(c,d);
         }
+    }
+
+    x[idx] = tile[idx];
+	x[idx + 32] = tile[idx + 32];
+    if(full){
+        x[idx + 64] = tile[idx + 64];
+        x[idx + 96] = tile[idx + 96];
     }
 }
 

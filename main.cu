@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <assert.h>
 
+#define SEQUENCE_SIZE 128
 #define S 64
 #define K 64
 #define L 64
@@ -43,7 +44,6 @@ int *get_splitters(int *in, int n){
 
 void warpSort(int *in, int n){
     assert(n % 64 == 0 && is_power_of_2(n));
-    int sequence_size = 64;
     int size = sizeof(int) * n;
     int *out = (int*) malloc(size);
 
@@ -53,20 +53,19 @@ void warpSort(int *in, int n){
     //step 1: bitonic sort
     cudaMalloc(&d_in, size) ;
     cudaMemcpy(d_in, in, size, cudaMemcpyHostToDevice);
-    bitonic_sort<<<n/sequence_size,sequence_size/4>>>(d_in,sequence_size);
-    cudaDeviceSynchronize();
+    bitonic_sort<<<n/SEQUENCE_SIZE,SEQUENCE_SIZE/4>>>(d_in,SEQUENCE_SIZE);
     cudaMemcpy(out, d_in, size, cudaMemcpyDeviceToHost);
+
+    cudaCheckError();
 
     //step 2: merge
     cudaMalloc(&d_out, size) ;
-    for(int seq = sequence_size; (n/seq) > L; seq *=2){
+    for(int seq = SEQUENCE_SIZE; (n/seq) > L; seq *=2){
         merge<<<n/(seq*2),32>>>(d_in,d_out,seq);
         cudaMemcpy(d_in, d_out, size, cudaMemcpyDeviceToDevice);
     }
-   
-    cudaDeviceSynchronize(); 
     cudaMemcpy(out, d_out, size, cudaMemcpyDeviceToHost);
-
+    cudaCheckError();
 
 
     //step 3: split into small tiles
@@ -136,36 +135,33 @@ void warpSort(int *in, int n){
             cudaMemcpyAsync(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice,stream[s]);
         }
     }
-    cudaDeviceSynchronize(); 
     offset = 0;
     for(int s = 0; s < S; s++){
         cudaMemcpyAsync(out + offset,d_outs[s],sizeof(int) * blocks_len[s],cudaMemcpyDeviceToHost,stream[s]);
         offset += blocks_len[s];
     }
+    cudaDeviceSynchronize();
+    cudaCheckError();
     memcpy(in,out,sizeof(int)*n);
 }
 
-int main(){
+int main(int argc, char **argv){
     srand(time(NULL));
-    int sequence_size = 128;
-    int n = sequence_size * (1 << 16);
+    int n = SEQUENCE_SIZE * (1 << atoi(argv[1]));
     int size = sizeof(int) * n;
     int *in = (int*) malloc(size);
     for(int i=0; i<n; i++) in[i] = rand() % 10000;
     int *in2 = (int*) malloc(size);
-    printf("testing on %d elements\n",n);
     memcpy(in2,in,sizeof(int)*n); 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     cudaEventRecord(start);
     warpSort(in,n);
-    cudaCheckError();
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
-    float milliseconds = 0;
-    cudaEventElapsedTime(&milliseconds, start, stop);
-    printf("warpsort time ms: %f\n",milliseconds);
+    float warpsort_milliseconds = 0;
+    cudaEventElapsedTime(&warpsort_milliseconds, start, stop);
 
     
     cudaEventCreate(&start);
@@ -174,11 +170,9 @@ int main(){
     qsort(in2,n,sizeof(int),cmp);
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&milliseconds, start, stop);
-    printf("sequential quicksort time ms: %f\n",milliseconds);
-
-    for(int i=0; i<n;i++)
-        assert(in[i] == in2[i]);
-
+    float qsort_milliseconds = 0;
+    cudaEventElapsedTime(&qsort_milliseconds, start, stop);
+    assert(memcmp(in,in2,sizeof(int)*n) == 0);
+    printf("%d;%f;%f\n",n,warpsort_milliseconds/1000,qsort_milliseconds/1000);
     return 0;
 }
