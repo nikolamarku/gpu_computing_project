@@ -130,16 +130,18 @@ void warpSort(int *in, int n){
 
 
     //step 4: merge independent S sequences
-    offset = 0;
     for(int s = 0; s < S; s++){
         for(int k = L/2; k > 0; k /= 2){
             final_merge<<<k,32,0,stream[s]>>>(d_ins[s],d_outs[s],d_block_len[s],L);
             cudaMemcpyAsync(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice,stream[s]);
         }
+    }
+    cudaDeviceSynchronize(); 
+    offset = 0;
+    for(int s = 0; s < S; s++){
         cudaMemcpyAsync(out + offset,d_outs[s],sizeof(int) * blocks_len[s],cudaMemcpyDeviceToHost,stream[s]);
         offset += blocks_len[s];
     }
-    cudaDeviceSynchronize();  
     memcpy(in,out,sizeof(int)*n);
 }
 
