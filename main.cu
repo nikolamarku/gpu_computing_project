@@ -70,6 +70,7 @@ void warpSort(int *in, int n){
 
     //step 3: split into small tiles
     block_info **block_len = (block_info**) malloc(sizeof(block_info*) * S);
+    int blocks_len[S] = {0};
     for(int i = 0; i < S; i++)
         block_len[i] = (block_info*) calloc(L, sizeof(block_info));
 
@@ -81,18 +82,10 @@ void warpSort(int *in, int n){
             block_len[j][i].start = (i*(n/L)) + start;
             block_len[j][i].end = (i*(n/L)) + k;
             block_len[j][i].len = k - start;
+            blocks_len[j] += (k -start);
         }
     }
-
-    int blocks_len[S] = {0};
-    for(int s=0; s<S; s++){
-        int sum = 0;
-        for(int l=0; l<L; l++){
-            sum += block_len[s][l].len;
-        }
-        blocks_len[s] = sum;
-    }
-
+    //re arrange
     int *organized_input = (int *) calloc(n, sizeof(int));
     int z = 0;
     for(int j=0; j<S; j++){
@@ -135,6 +128,7 @@ void warpSort(int *in, int n){
             cudaMemcpyAsync(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice,stream[s]);
         }
     }
+
     offset = 0;
     for(int s = 0; s < S; s++){
         cudaMemcpyAsync(out + offset,d_outs[s],sizeof(int) * blocks_len[s],cudaMemcpyDeviceToHost,stream[s]);
@@ -172,6 +166,7 @@ int main(int argc, char **argv){
     cudaEventSynchronize(stop);
     float qsort_milliseconds = 0;
     cudaEventElapsedTime(&qsort_milliseconds, start, stop);
+
     assert(memcmp(in,in2,sizeof(int)*n) == 0);
     printf("%d;%f;%f\n",n,warpsort_milliseconds/1000,qsort_milliseconds/1000);
     return 0;
