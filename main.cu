@@ -142,8 +142,16 @@ int main(int argc, char **argv){
     int n = SEQUENCE_SIZE * (1 << atoi(argv[1]));
     int size = sizeof(int) * n;
     int *in = (int*) malloc(size);
+    if(in == NULL){
+        printf("in malloc fail");
+        return 1;
+    }
     for(int i=0; i<n; i++) in[i] = rand() % 10000;
     int *in2 = (int*) malloc(size);
+    if(in2 == NULL){
+        printf("in2 malloc fail");
+        return 1;
+    }
     memcpy(in2,in,sizeof(int)*n); 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
