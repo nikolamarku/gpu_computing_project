@@ -3,9 +3,9 @@
 
 
 typedef struct {
-    int len;
-    int start;
-    int end;
+    size_t len;
+    size_t start;
+    size_t end;
 }block_info;
 
 

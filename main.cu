@@ -36,7 +36,7 @@ int cmp(const void * a, const void * b){
 }
 
 
-int *get_splitters(int *in, int n){
+int *get_splitters(int *in, unsigned long n){
     int *tmp = (int*) malloc(sizeof(int)*S*K);
     int *splitters = (int*) malloc(sizeof(int)*S);
     for(int i = 0; i < S*K; i++)
@@ -51,9 +51,9 @@ int *get_splitters(int *in, int n){
 
 
 
-void warpSort(int *in, int n){
+void warpSort(int *in, unsigned long n){
     assert(n % 64 == 0 && is_power_of_2(n));
-    int size = sizeof(int) * n;
+    size_t size = sizeof(int) * n;
     int *out = (int*) malloc(size);
 
     int *splitters = get_splitters(in,n);
@@ -77,7 +77,7 @@ void warpSort(int *in, int n){
 
     //step 3: split into small tiles
     block_info **block_len = (block_info**) malloc(sizeof(block_info*) * S);
-    int blocks_len[S] = {0};
+    unsigned long blocks_len[S] = {0};
     for(int i = 0; i < S; i++)
         block_len[i] = (block_info*) calloc(L, sizeof(block_info));
 
@@ -94,12 +94,12 @@ void warpSort(int *in, int n){
     }
     //re arrange
     int *organized_input = (int *) calloc(n, sizeof(int));
-    int z = 0;
+    unsigned long z = 0;
     for(int j=0; j<S; j++){
-        int start = 0;
+        unsigned long start = 0;
         for(int i=0; i<L; i++){
-            int a = z;
-            for(int k=block_len[j][i].start; k < block_len[j][i].end; k++)
+            unsigned long a = z;
+            for(unsigned long k=block_len[j][i].start; k < block_len[j][i].end; k++)
                 organized_input[z++] = out[k];
             block_len[j][i].start = start;
             block_len[j][i].end = start + z - a;
@@ -111,7 +111,7 @@ void warpSort(int *in, int n){
     int **h_outs;
     h_ins = (int**) malloc(sizeof(int*) * S);
     h_outs = (int**) malloc(sizeof(int*) * S);
-    int offset = 0;
+    unsigned long offset = 0;
     for(int i =0; i<S; i++){
         CHECK(cudaMalloc(&h_ins[i],sizeof(int)*blocks_len[i]));
         CHECK(cudaMemcpy(h_ins[i],organized_input + offset,sizeof(int) * blocks_len[i],cudaMemcpyHostToDevice));
@@ -157,8 +157,8 @@ void warpSort(int *in, int n){
 
 int main(int argc, char **argv){
     srand(time(NULL));
-    int n = SEQUENCE_SIZE * (1 << atoi(argv[1]));
-    int size = sizeof(int) * n;
+    size_t n = SEQUENCE_SIZE * (1 << atoi(argv[1]));
+    size_t size = sizeof(int) * n;
     int *in = (int*) malloc(size);
     CHECK_PTR(in);
     for(int i=0; i<n; i++) in[i] = rand() % 10000;
@@ -181,6 +181,6 @@ int main(int argc, char **argv){
     double qsort_seconds = (double)(end - begin) / CLOCKS_PER_SEC;
 
     assert(memcmp(in,in2,sizeof(int)*n) == 0);
-    printf("%d;%f;%f\n",n,warpsort_milliseconds/1000,qsort_seconds);
+    printf("%zu;%f;%f\n",n,warpsort_milliseconds/1000,qsort_seconds);
     return 0;
 }

@@ -113,7 +113,7 @@ __global__ void final_merge(int **ins, int **outs, block_info** b_infos, const i
     int k = (L/2) / gridDim.y;
     int idx = threadIdx.x;
 
-    int offset = b_infos[s][i].start,
+    unsigned long offset = b_infos[s][i].start,
         seq_a_size = b_infos[s][i].len,
         seq_a_pos = b_infos[s][i].start,
         seq_b_size = b_infos[s][i+k].len, 
@@ -126,8 +126,8 @@ __global__ void final_merge(int **ins, int **outs, block_info** b_infos, const i
     tile[32 - 1 - idx] =  (idx < seq_a_size) ? A[idx] : INT_MAX;
 	tile[32 + idx]     =  (idx < seq_b_size) ? B[idx] : INT_MAX;
     int max_A = tile[0], max_B = tile[63];
-    int A_cursor = min(seq_a_size,32);
-    int B_cursor = min(seq_b_size, 32);
+    int A_cursor = min(seq_a_size, 32ul);
+    int B_cursor = min(seq_b_size, 32ul);
     int copied = 0;
 
     //while there are subsequences in A or B to merge
@@ -142,12 +142,12 @@ __global__ void final_merge(int **ins, int **outs, block_info** b_infos, const i
             assert(A_cursor < seq_a_size);
             tile[32 - 1 - idx] =  ((idx+A_cursor) < seq_a_size) ? A[idx + A_cursor] : INT_MAX;
             max_A = tile[0];
-            A_cursor = min(A_cursor + 32, seq_a_size);
+            A_cursor = min(A_cursor + 32ul, seq_a_size);
         }else{
             assert(B_cursor < seq_b_size);
             tile[32 - 1 - idx] = ((idx+B_cursor) < seq_b_size) ? B[idx + B_cursor] : INT_MAX;
             max_B = tile[0];
-            B_cursor = min(B_cursor + 32, seq_b_size);
+            B_cursor = min(B_cursor + 32ul, seq_b_size);
         }
     }
     //merge
