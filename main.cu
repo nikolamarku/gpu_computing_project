@@ -10,7 +10,8 @@
 #define K 64
 #define L 64
 #define CEIL(x,n) (x/n)*n + (n * (x % n > 0))
-#define cudaCheckError() {                                          \
+#define CHECK(x) { \
+    x;                                          \
  cudaError_t e=cudaGetLastError();                                 \
  if(e!=cudaSuccess) {                                              \
    printf("Cuda failure %s:%d: '%s'\n",__FILE__,__LINE__,cudaGetErrorString(e));           \
@@ -51,21 +52,19 @@ void warpSort(int *in, int n){
     int *d_in, *d_out;
 
     //step 1: bitonic sort
-    cudaMalloc(&d_in, size) ;
-    cudaMemcpy(d_in, in, size, cudaMemcpyHostToDevice);
+    CHECK(cudaMalloc(&d_in, size));
+    CHECK(cudaMemcpy(d_in, in, size, cudaMemcpyHostToDevice));
     bitonic_sort<<<n/SEQUENCE_SIZE,SEQUENCE_SIZE/4>>>(d_in,SEQUENCE_SIZE);
-    cudaMemcpy(out, d_in, size, cudaMemcpyDeviceToHost);
-
-    cudaCheckError();
+    CHECK(cudaMemcpy(out, d_in, size, cudaMemcpyDeviceToHost));
 
     //step 2: merge
-    cudaMalloc(&d_out, size) ;
+    CHECK(cudaMalloc(&d_out, size));
     for(int seq = SEQUENCE_SIZE; (n/seq) > L; seq *=2){
         merge<<<n/(seq*2),32>>>(d_in,d_out,seq);
-        cudaMemcpy(d_in, d_out, size, cudaMemcpyDeviceToDevice);
+        CHECK(cudaMemcpy(d_in, d_out, size, cudaMemcpyDeviceToDevice));
     }
-    cudaMemcpy(out, d_out, size, cudaMemcpyDeviceToHost);
-    cudaCheckError();
+    CHECK(cudaMemcpy(out, d_out, size, cudaMemcpyDeviceToHost));
+    CHECK(cudaFree(d_out));
 
 
     //step 3: split into small tiles
@@ -106,18 +105,18 @@ void warpSort(int *in, int n){
     d_outs = (int**) malloc(sizeof(int*) * S);
     int offset = 0;
     for(int i =0; i<S; i++){
-        cudaMalloc(&d_ins[i],sizeof(int)*blocks_len[i]);
-        cudaMemcpy(d_ins[i],organized_input + offset,sizeof(int) * blocks_len[i],cudaMemcpyHostToDevice);
-        cudaMalloc(&d_outs[i],sizeof(int)*blocks_len[i]);
+        CHECK(cudaMalloc(&d_ins[i],sizeof(int)*blocks_len[i]));
+        CHECK(cudaMemcpy(d_ins[i],organized_input + offset,sizeof(int) * blocks_len[i],cudaMemcpyHostToDevice));
+        CHECK(cudaMalloc(&d_outs[i],sizeof(int)*blocks_len[i]));
         offset += blocks_len[i];
     }
 
     block_info **d_block_len = (block_info**) malloc(sizeof(block_info*) * S);
     cudaStream_t stream[S];
     for(int i = 0; i < S; i++){
-        cudaStreamCreate(&stream[i]);
-        cudaMalloc(&d_block_len[i],sizeof(block_info) * L);
-        cudaMemcpy(d_block_len[i],block_len[i],sizeof(block_info) * L,cudaMemcpyHostToDevice);
+        CHECK(cudaStreamCreate(&stream[i]));
+        CHECK(cudaMalloc(&d_block_len[i],sizeof(block_info) * L));
+        CHECK(cudaMemcpy(d_block_len[i],block_len[i],sizeof(block_info) * L,cudaMemcpyHostToDevice));
     }
 
 
@@ -125,17 +124,16 @@ void warpSort(int *in, int n){
     for(int s = 0; s < S; s++){
         for(int k = L/2; k > 0; k /= 2){
             final_merge<<<k,32,0,stream[s]>>>(d_ins[s],d_outs[s],d_block_len[s],L);
-            cudaMemcpyAsync(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice,stream[s]);
+            CHECK(cudaMemcpyAsync(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice,stream[s]));
         }
     }
 
     offset = 0;
     for(int s = 0; s < S; s++){
-        cudaMemcpyAsync(out + offset,d_outs[s],sizeof(int) * blocks_len[s],cudaMemcpyDeviceToHost,stream[s]);
+        CHECK(cudaMemcpyAsync(out + offset,d_outs[s],sizeof(int) * blocks_len[s],cudaMemcpyDeviceToHost,stream[s]));
         offset += blocks_len[s];
     }
     cudaDeviceSynchronize();
-    cudaCheckError();
     memcpy(in,out,sizeof(int)*n);
 }
 
