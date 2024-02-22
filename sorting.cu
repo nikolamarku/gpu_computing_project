@@ -106,20 +106,21 @@ __global__ void merge(int *x, int *out, int sequence_size){
 
 
 
-__global__ void final_merge(int *x, int *out, block_info* b_info, const int L){
+__global__ void final_merge(int **ins, int **outs, block_info** b_infos, const int L){
     assert(blockDim.x == 32);
-    int i = blockIdx.x * (L/gridDim.x);
-    int k = (L/2) / gridDim.x;
+    int s = blockIdx.x;
+    int i = blockIdx.y * (L/gridDim.y);
+    int k = (L/2) / gridDim.y;
     int idx = threadIdx.x;
 
-    int offset = b_info[i].start,
-        seq_a_size = b_info[i].len,
-        seq_a_pos = b_info[i].start,
-        seq_b_size = b_info[i+k].len, 
-        seq_b_pos = b_info[i+k].start;
-    out = out + offset;
+    int offset = b_infos[s][i].start,
+        seq_a_size = b_infos[s][i].len,
+        seq_a_pos = b_infos[s][i].start,
+        seq_b_size = b_infos[s][i+k].len, 
+        seq_b_pos = b_infos[s][i+k].start;
+    int *out = outs[s] + offset;
 
-    int *A = x + seq_a_pos, *B = x + seq_b_pos;
+    int *A = ins[s] + seq_a_pos, *B = ins[s] + seq_b_pos;
     __shared__ int tile[64];
     //load data in smem such that the two sequences form a bitonic sequence (desc to asc).
     tile[32 - 1 - idx] =  (idx < seq_a_size) ? A[idx] : INT_MAX;
@@ -159,6 +160,6 @@ __global__ void final_merge(int *x, int *out, block_info* b_info, const int L){
         out[copied + idx + 32] = tile[idx + 32];
 
     //update block info
-    b_info[i].end = b_info[i+k].end;
-    b_info[i].len = b_info[i].len + b_info[i+k].len;
+    b_infos[s][i].end = b_infos[s][i+k].end;
+    b_infos[s][i].len = b_infos[s][i].len + b_infos[s][i+k].len;
 }

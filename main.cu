@@ -4,12 +4,20 @@
 #include <time.h>
 #include <limits.h>
 #include <assert.h>
+#include <time.h>
 
 #define SEQUENCE_SIZE 128
-#define S 64
+#define S 128
 #define K 64
 #define L 64
 #define CEIL(x,n) (x/n)*n + (n * (x % n > 0))
+#define CHECK_PTR(ptr) {\
+    if(ptr == NULL){ \
+        printf("ptr is null %s:%d\n",__FILE__,__LINE__); \
+        exit(1); \
+    } \
+}
+
 #define CHECK(x) { \
     x;                                          \
  cudaError_t e=cudaGetLastError();                                 \
@@ -99,38 +107,48 @@ void warpSort(int *in, int n){
         }
     }
 
-    int **d_ins;
-    int **d_outs;
-    d_ins = (int**) malloc(sizeof(int*) * S);
-    d_outs = (int**) malloc(sizeof(int*) * S);
+    int **h_ins;
+    int **h_outs;
+    h_ins = (int**) malloc(sizeof(int*) * S);
+    h_outs = (int**) malloc(sizeof(int*) * S);
     int offset = 0;
     for(int i =0; i<S; i++){
-        CHECK(cudaMalloc(&d_ins[i],sizeof(int)*blocks_len[i]));
-        CHECK(cudaMemcpy(d_ins[i],organized_input + offset,sizeof(int) * blocks_len[i],cudaMemcpyHostToDevice));
-        CHECK(cudaMalloc(&d_outs[i],sizeof(int)*blocks_len[i]));
+        CHECK(cudaMalloc(&h_ins[i],sizeof(int)*blocks_len[i]));
+        CHECK(cudaMemcpy(h_ins[i],organized_input + offset,sizeof(int) * blocks_len[i],cudaMemcpyHostToDevice));
+        CHECK(cudaMalloc(&h_outs[i],sizeof(int)*blocks_len[i]));
         offset += blocks_len[i];
     }
 
-    block_info **d_block_len = (block_info**) malloc(sizeof(block_info*) * S);
-    cudaStream_t stream[S];
+    block_info **h_block_len = (block_info**) malloc(sizeof(block_info*) * S);
     for(int i = 0; i < S; i++){
-        CHECK(cudaStreamCreate(&stream[i]));
-        CHECK(cudaMalloc(&d_block_len[i],sizeof(block_info) * L));
-        CHECK(cudaMemcpy(d_block_len[i],block_len[i],sizeof(block_info) * L,cudaMemcpyHostToDevice));
+        CHECK(cudaMalloc(&h_block_len[i],sizeof(block_info) * L));
+        CHECK(cudaMemcpy(h_block_len[i],block_len[i],sizeof(block_info) * L,cudaMemcpyHostToDevice));
     }
 
 
     //step 4: merge independent S sequences
-    for(int s = 0; s < S; s++){
-        for(int k = L/2; k > 0; k /= 2){
-            final_merge<<<k,32,0,stream[s]>>>(d_ins[s],d_outs[s],d_block_len[s],L);
-            CHECK(cudaMemcpyAsync(d_ins[s],d_outs[s],blocks_len[s]*sizeof(int),cudaMemcpyDeviceToDevice,stream[s]));
-        }
+    int **d_ins;
+    int **d_outs;
+    block_info **dd_block_info;
+    cudaMalloc(&d_ins, sizeof(int*)*S);
+    cudaMalloc(&d_outs, sizeof(int*)*S);
+    cudaMalloc(&dd_block_info, sizeof(block_info*)*S);
+    
+    cudaMemcpy(d_ins, h_ins, sizeof(int*)*S,cudaMemcpyHostToDevice);
+    cudaMemcpy(d_outs, h_outs, sizeof(int*)*S, cudaMemcpyHostToDevice);
+    cudaMemcpy(dd_block_info, h_block_len, sizeof(int*)*S, cudaMemcpyHostToDevice);
+
+    for(int k = L/2; k > 0; k /= 2){
+        dim3 grid(S,k);
+        final_merge<<<grid,32>>>(d_ins,d_outs,dd_block_info,L);
+        CHECK();
+        for(int i = 0; i < S; i++)
+            CHECK(cudaMemcpy(h_ins[i],h_outs[i],blocks_len[i]*sizeof(int),cudaMemcpyDeviceToDevice));
     }
 
     offset = 0;
     for(int s = 0; s < S; s++){
-        CHECK(cudaMemcpyAsync(out + offset,d_outs[s],sizeof(int) * blocks_len[s],cudaMemcpyDeviceToHost,stream[s]));
+        CHECK(cudaMemcpy(out + offset,h_outs[s],sizeof(int) * blocks_len[s],cudaMemcpyDeviceToHost));
         offset += blocks_len[s];
     }
     cudaDeviceSynchronize();
@@ -142,16 +160,10 @@ int main(int argc, char **argv){
     int n = SEQUENCE_SIZE * (1 << atoi(argv[1]));
     int size = sizeof(int) * n;
     int *in = (int*) malloc(size);
-    if(in == NULL){
-        printf("in malloc fail");
-        return 1;
-    }
+    CHECK_PTR(in);
     for(int i=0; i<n; i++) in[i] = rand() % 10000;
     int *in2 = (int*) malloc(size);
-    if(in2 == NULL){
-        printf("in2 malloc fail");
-        return 1;
-    }
+    CHECK_PTR(in2);
     memcpy(in2,in,sizeof(int)*n); 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
@@ -163,17 +175,12 @@ int main(int argc, char **argv){
     float warpsort_milliseconds = 0;
     cudaEventElapsedTime(&warpsort_milliseconds, start, stop);
 
-    
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    cudaEventRecord(start); 
+    clock_t begin = clock();
     qsort(in2,n,sizeof(int),cmp);
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
-    float qsort_milliseconds = 0;
-    cudaEventElapsedTime(&qsort_milliseconds, start, stop);
+    clock_t end = clock();
+    double qsort_seconds = (double)(end - begin) / CLOCKS_PER_SEC;
 
     assert(memcmp(in,in2,sizeof(int)*n) == 0);
-    printf("%d;%f;%f\n",n,warpsort_milliseconds/1000,qsort_milliseconds/1000);
+    printf("%d;%f;%f\n",n,warpsort_milliseconds/1000,qsort_seconds);
     return 0;
 }

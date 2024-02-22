@@ -22,6 +22,6 @@ __global__ void merge(int *x, int *out, int sequence_size);
 /**
  * Kernel implementing the step n. 4 of the algorithm
 */
-__global__ void final_merge(int *x, int *out, block_info *block_info, const int L);
+__global__ void final_merge(int **ins, int **outs, block_info** b_infos, const int L);
 
 #endif
