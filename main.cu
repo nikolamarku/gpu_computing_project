@@ -7,7 +7,7 @@
 #include <time.h>
 
 #define SEQUENCE_SIZE 128
-#define S 128
+#define S 64 
 #define K 64
 #define L 64
 #define CEIL(x,n) (x/n)*n + (n * (x % n > 0))
